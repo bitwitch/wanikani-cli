@@ -27,7 +27,33 @@ state = States.NORMAL
 revQuestions = deque()
 revAnswers = {}
 
-def reviewBatch(questions, answers):
+# moves an assignment from the lesson to review queue
+def startAssignment(baseUrl, apiToken, assignId):
+    print('MOVING ASSIGNMENT FROM LESSON TO REVIEW QUEUE')
+    pprint(assignId)
+
+    # headers = {
+        # 'Wanikani-Revision': '20170710',
+        # 'Authorization': 'Bearer ' + apiToken }
+
+    # r = requests.put(f'{baseUrl}/assignments/{assignId}/start', headers=headers)
+
+    # if r.status_code < 200 or r.status_code >= 300:
+        # errorString = 'Unable to start assignment.'
+        # if 'error' in r.json():
+            # errorString += f"\nResponse error: {r.status_code} {r.json()['error']}"
+        # logging.error(errorString)
+        # print(errorString)
+
+# creates a new review record
+def createReview(baseUrl, apiToken, assignId):
+    print('CREATING REVIEW')
+    pprint(assignId)
+
+# prompts the user with questions, records correct/incorrect responses in answers,
+# and calls correctAnswerCallback on each assignment for which all parts have been
+# answered correctly 
+def reviewBatch(baseUrl, apiToken, questions, answers, correctAnswerCallback):
     while len(questions) > 0:
         random.shuffle(questions)
         q = questions[0]
@@ -69,10 +95,13 @@ def reviewBatch(questions, answers):
             else:
                 answers[assignId]['incorrectReading'] += 1
             print(f"INCORRECT...\nAccepted answers: {', '.join(accepted)}")
-        if (answers[assignId]['meaning'] == True and 
-                answers[assignId]['reading'] == True):
-            print('item complete, move assignment to review state')
-            pprint(answers[assignId])
+
+        if (answers[assignId]['meaning'] == True):
+            if (('reading' in answers[assignId] and 
+                    answers[assignId]['reading'] == True) or
+                    'reading' not in answers[assignId]):
+                print('item complete. if review, create a new record. if lesson, move assignment to review state.')
+                correctAnswerCallback(baseUrl, apiToken, assignId)
 
 def lessonLearn(lessons):
     for q in lessons:
@@ -274,20 +303,25 @@ def stateLesson(baseUrl, apiToken, assignments):
         s = fetchSubject(baseUrl, apiToken, a['data']['subject_id'])
 
         lesToLearn.append({ 'assignment': a, 'subject': s })
+        lesQuestions.append({ 'type': 'meaning', 'assignment': a, 'subject': s })
         lesAnswers[a['id']] = { 
             'meaning': False,  # user has answered the meaning correctly
-            'reading': False,  # user has answered the reading correctly
-            'incorrectMeaning': 0,
-            'incorrectReading': 0 } 
-        lesQuestions.append({ 'type': 'meaning', 'assignment': a, 'subject': s })
+            'incorrectMeaning': 0 }
         if a['data']['subject_type'] != 'radical':
             lesQuestions.append({ 'type': 'reading', 'assignment': a, 'subject': s })
+            lesAnswers[a['id']] = { 
+                'reading': False,  # user has answered the meaning correctly
+                'incorrectReading': 0 }
 
     # learn items in this lesson batch
     lessonLearn(lesToLearn)
 
     # review items in this lesson batch
-    reviewBatch(lesQuestions, lesAnswers)
+    reviewBatch(baseUrl, apiToken, lesQuestions, lesAnswers, startAssignment)
+
+    # remove completed lessons from assignments deque
+    for i in range(lesBatchSize):
+        assignments.popleft()
 
 def stateReview(baseUrl, apiToken, assignments):
     global state, revQuestions, revAnswers
@@ -299,68 +333,29 @@ def stateReview(baseUrl, apiToken, assignments):
 
     # get five assignments from queue (or all if less than 5 left)
     # create a data structure that holds booleans for reading and meaning answers
-    if len(revQuestions) == 0:
-        revAnswers = {}
-        for i in range(5):
-            if i+1 >= len(assignments): continue
+    revQuestions = deque()
+    revAnswers = {}
+    revBatchSize = 5
+    for i in range(revBatchSize):
+        if i+1 >= len(assignments): continue
 
-            a = assignments[i]
-            s = fetchSubject(baseUrl, apiToken, a['data']['subject_id'])
-            
-            revAnswers[a['id']] = { 
-                'meaning': False,  # user has answered the meaning correctly
-                'reading': False,  # user has answered the reading correctly
-                'incorrectMeaning': 0,
-                'incorrectReading': 0 } 
-            revQuestions.append({ 'type': 'meaning', 'assignment': a, 'subject': s })
-            revQuestions.append({ 'type': 'reading', 'assignment': a, 'subject': s })
+        a = assignments[i]
+        s = fetchSubject(baseUrl, apiToken, a['data']['subject_id'])
+        
+        revAnswers[a['id']] = { 
+            'meaning': False,  # user has answered the meaning correctly
+            'reading': False,  # user has answered the reading correctly
+            'incorrectMeaning': 0,
+            'incorrectReading': 0 } 
+        revQuestions.append({ 'type': 'meaning', 'assignment': a, 'subject': s })
+        revQuestions.append({ 'type': 'reading', 'assignment': a, 'subject': s })
 
-    # TODO(shaw): use reviewBatch(revQuestions, revAnswers) here
-    random.shuffle(revQuestions)
-    q = revQuestions[0]
-    assignId = q['assignment']['id']
+    reviewBatch(baseUrl, apiToken, revQuestions, revAnswers, createReview)
 
-    print(q['subject']['data']['characters'])
-    print(q['type'].upper() + ':', end=' ')
+    # remove completed reviews from assignments deque
+    for i in range(revBatchSize):
+        assignments.popleft()
 
-    command = input().lower().strip()
-
-    # only q is used to exit review state, because quit and exit
-    # can be actual review words
-    if command == 'q':
-        state = States.NORMAL
-        return
-
-    # make sure the command is in the right charset given the question type
-    while True:
-        correctCharset = checkAnswerCharset(command, q['type'])
-        if not correctCharset:
-            print(q['subject']['data']['characters'])
-            print(q['type'].upper() + ':', end=' ')
-            command = input().lower().strip()
-        else: break
-
-    if q['type'] == 'meaning':
-        meanings = q['subject']['data']['meanings']
-        accepted = [m['meaning'].lower() for m in meanings]
-    else:
-        readings = q['subject']['data']['readings']
-        accepted = [r['reading'].lower() for r in readings]
-    if command in accepted:
-        revAnswers[assignId][ q['type'] ] = True
-        revQuestions.popleft()
-        print('CORRECT!')
-    else:
-        if q['type'] == 'meaning':
-            revAnswers[assignId]['incorrectMeaning'] += 1
-        else:
-            revAnswers[assignId]['incorrectReading'] += 1
-        print(f"INCORRECT...\nAccepted answers: {', '.join(accepted)}")
-    if (revAnswers[assignId]['meaning'] == True and 
-            revAnswers[assignId]['reading'] == True):
-        print('item complete, create review record')
-        pprint(revAnswers[assignId])
-    
 def stateNormal():
     quit = False
     command = input().strip()
