@@ -6,6 +6,8 @@ import logging
 import json
 import random
 from sys import exit
+from textwrap import fill
+
 
 # third party
 import dateutil.parser
@@ -24,6 +26,83 @@ class States(Enum):
 state = States.NORMAL
 revQuestions = deque()
 revAnswers = {}
+
+def reviewBatch(questions, answers):
+    while len(questions) > 0:
+        random.shuffle(questions)
+        q = questions[0]
+        assignId = q['assignment']['id']
+
+        print(q['subject']['data']['characters'])
+        print(q['type'].upper() + ':', end=' ')
+
+        command = input().lower().strip()
+
+        # only q is used to exit review state, because quit and exit
+        # can be actual lesson words
+        if command == 'q':
+            state = States.NORMAL
+            return
+
+        # make sure the command is in the right charset given the question type
+        while True:
+            correctCharset = checkAnswerCharset(command, q['type'])
+            if not correctCharset:
+                print(q['subject']['data']['characters'])
+                print(q['type'].upper() + ':', end=' ')
+                command = input().lower().strip()
+            else: break
+
+        if q['type'] == 'meaning':
+            meanings = q['subject']['data']['meanings']
+            accepted = [m['meaning'].lower() for m in meanings]
+        else:
+            readings = q['subject']['data']['readings']
+            accepted = [r['reading'].lower() for r in readings]
+        if command in accepted:
+            answers[assignId][ q['type'] ] = True
+            questions.popleft()
+            print('CORRECT!')
+        else:
+            if q['type'] == 'meaning':
+                answers[assignId]['incorrectMeaning'] += 1
+            else:
+                answers[assignId]['incorrectReading'] += 1
+            print(f"INCORRECT...\nAccepted answers: {', '.join(accepted)}")
+        if (answers[assignId]['meaning'] == True and 
+                answers[assignId]['reading'] == True):
+            print('item complete, move assignment to review state')
+            pprint(answers[assignId])
+
+def lessonLearn(lessons):
+    for q in lessons:
+        assignId = q['assignment']['id']
+        subjectType = q['assignment']['data']['subject_type']
+        print(subjectType + ':')
+        print(q['subject']['data']['characters'])
+        # learn meaning
+        print('meaning:')
+        for m in q['subject']['data']['meanings']:
+            if m['primary']:
+                printWait(m['meaning'])
+                break
+        # meanings = [ m['meaning'] for m in q['subject']['data']['meanings'] ]
+        # printWait(', '.join(meanings))
+        print('Meaning Mnemonic:')
+        printWait(q['subject']['data']['meaning_mnemonic'])
+        if subjectType == 'radical': continue
+        # learn reading
+        print('Reading:')
+        for r in q['subject']['readings']:
+            if r['primary']:
+                printWait(r['reading'])
+                break
+        # for r in q['subject']['readings']:
+            # print(f"{r['type']}: {r['reading']}")
+        # print('')
+        if 'reading_mnemonic' in q['subject']['data']:
+            print('Reading Mnemonic:')
+            printWait(q['subject']['data']['meaning_mnemonic'])
 
 def fetchSummary(baseUrl, apiToken):
     headers = {
@@ -59,11 +138,15 @@ def printSummary(baseUrl, apiToken, executionTime):
             reviewItemCount += len( review['subject_ids'] )
     print(f'You have {reviewItemCount} reviews available.')
 
-def fetchAssignmentsReview(baseUrl, apiToken):
+# assignType is one of: 'r', 'review', 'reviews', 'l', 'lesson', 'lessons'
+def fetchAssignments(baseUrl, apiToken, assignType):
+    if assignType == 'r' or assignType == 'reviews': assignType = 'review'
+    if assignType == 'l' or assignType == 'lesson': assignType = 'lessons'
+
     headers = {
         'Wanikani-Revision': '20170710',
         'Authorization': 'Bearer ' + apiToken }
-    params = { 'immediately_available_for_review': '' }
+    params = { f'immediately_available_for_{assignType}': '' }
 
     r = requests.get(f'{baseUrl}/assignments', headers=headers, params=params)
 
@@ -110,6 +193,11 @@ def checkAnswerCharset(command, qType):
                 print('Careful! This is a meaning and you entered non-arabic letters.')
                 return False
     return True
+
+def printWait(text):
+    print(fill(text, 78))
+    print('\npress enter to continue...')
+    input()
 
 def _non_serializable(o):
     culprit = f"<<non-serializable: {type(o).__qualname__}>>"
@@ -166,13 +254,40 @@ commands = {
 
 # Program states
 #-------------------------------------------------------------------------------
-def stateLesson(baseUrl, apiToken):
-    print('lesson')
-    quit = False
-    command = input().strip()
-    if command == 'exit' or command == 'quit' or command == 'q':
-        quit = True
-    return quit
+def stateLesson(baseUrl, apiToken, assignments):
+    global state
+
+    if len(assignments) == 0:
+        print('Completed all available lessons!')
+        state = States.NORMAL
+        return
+
+    # get five assignments from queue (or all if less than 5 left)
+    # create a data structure that holds booleans for reading and meaning answers
+    lesToLearn = []
+    lesQuestions = deque()
+    lesAnswers = {}
+    lesBatchSize = 5
+    for i in range(lesBatchSize):
+        if i+1 >= len(assignments): continue
+        a = assignments[i]
+        s = fetchSubject(baseUrl, apiToken, a['data']['subject_id'])
+
+        lesToLearn.append({ 'assignment': a, 'subject': s })
+        lesAnswers[a['id']] = { 
+            'meaning': False,  # user has answered the meaning correctly
+            'reading': False,  # user has answered the reading correctly
+            'incorrectMeaning': 0,
+            'incorrectReading': 0 } 
+        lesQuestions.append({ 'type': 'meaning', 'assignment': a, 'subject': s })
+        if a['data']['subject_type'] != 'radical':
+            lesQuestions.append({ 'type': 'reading', 'assignment': a, 'subject': s })
+
+    # learn items in this lesson batch
+    lessonLearn(lesToLearn)
+
+    # review items in this lesson batch
+    reviewBatch(lesQuestions, lesAnswers)
 
 def stateReview(baseUrl, apiToken, assignments):
     global state, revQuestions, revAnswers
@@ -187,6 +302,8 @@ def stateReview(baseUrl, apiToken, assignments):
     if len(revQuestions) == 0:
         revAnswers = {}
         for i in range(5):
+            if i+1 >= len(assignments): continue
+
             a = assignments[i]
             s = fetchSubject(baseUrl, apiToken, a['data']['subject_id'])
             
@@ -198,6 +315,7 @@ def stateReview(baseUrl, apiToken, assignments):
             revQuestions.append({ 'type': 'meaning', 'assignment': a, 'subject': s })
             revQuestions.append({ 'type': 'reading', 'assignment': a, 'subject': s })
 
+    # TODO(shaw): use reviewBatch(revQuestions, revAnswers) here
     random.shuffle(revQuestions)
     q = revQuestions[0]
     assignId = q['assignment']['id']
@@ -243,7 +361,6 @@ def stateReview(baseUrl, apiToken, assignments):
         print('item complete, create review record')
         pprint(revAnswers[assignId])
     
-
 def stateNormal():
     quit = False
     command = input().strip()
@@ -298,13 +415,18 @@ def main():
     currentLessons = deque()
 
     # main loop
-    while(True):
+    while True:
         if state == States.LESSON:
-           stateLesson(baseUrl, apiToken)
+            if not lessonsFetched: 
+                currentLessons = deque( fetchAssignments(baseUrl, apiToken, 'lessons') )
+                print(f'Request returned {len(currentLessons)} lesson assignments.')
+                lessonsFetched = True
+            else:
+               stateLesson(baseUrl, apiToken, currentLessons)
         elif state == States.REVIEW:
             if not reviewsFetched: 
-                currentReviews = deque( fetchAssignmentsReview(baseUrl, apiToken) )
-                print(f'Request returned {len(currentReviews)} assignments.')
+                currentReviews = deque( fetchAssignments(baseUrl, apiToken, 'review') )
+                print(f'Request returned {len(currentReviews)} review assignments.')
                 reviewsFetched = True
             else:
                 stateReview(baseUrl, apiToken, currentReviews)
