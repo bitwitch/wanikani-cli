@@ -187,8 +187,10 @@ def fetchSummary(baseUrl, apiToken):
 
     return r.json()['data']
 
-def printSummary(baseUrl, apiToken, executionTime, end='\n'):
+def printSummary(baseUrl, apiToken, end='\n'):
     summary = fetchSummary(baseUrl, apiToken)
+
+    executionTime = datetime.now(tz.UTC)
 
     lessonItemCount = 0
     for lesson in summary['lessons']:
@@ -292,26 +294,6 @@ def printWait(text):
     print('\npress enter to continue...')
     input()
 
-def _non_serializable(o):
-    culprit = f"<<non-serializable: {type(o).__qualname__}>>"
-    errorString = (
-        'Encountered an unserializable object while writing to database.\n' +
-        culprit)
-    logging.error(errorString)
-    return culprit
-
-def updateDb(filename, data, oldData):
-    fp = open(filename, 'w')
-    try:
-        json.dump(data, fp, default=_non_serializable)
-    except Exception as e:
-        fp.seek(0)
-        json.dump(oldData, fp)
-        logging.error(f'Unable to update database.\n{e}') 
-        print(f'Unable to update database.\n{e}') 
-    finally:
-        fp.close()
-
 # Commands 
 #-------------------------------------------------------------------------------
 
@@ -349,6 +331,7 @@ commands = {
     'reviews': cmdReview,
     'r':       cmdReview,
     'summary': cmdSummary,
+    's':       cmdSummary,
 }
 
 # Program states
@@ -441,7 +424,7 @@ def stateReview(baseUrl, apiToken, assignments):
 
 def stateSummary(baseUrl, apiToken):
     global state
-    printSummary(baseUrl, apiToken, datetime.now(tz.UTC))
+    printSummary(baseUrl, apiToken)
     state = States.NORMAL
 
 def stateNormal():
@@ -475,25 +458,7 @@ def main():
 
     lesBatchSize = user['preferences']['lessons_batch_size']
 
-    try:
-        fp = open('wk_data.json', 'r')
-        oldWkData = json.load(fp)
-    except FileNotFoundError:
-        fp = open('wk_data.json', 'w')
-        emptyDbData = { 'lastExecution': datetime.now(tz.UTC).isoformat() }
-        json.dump(emptyDbData, fp)
-        oldWkData = emptyDbData 
-    finally:
-        fp.close()
-
-    # oldWkData is only used as a backup in the case when an error occurs 
-    # while writing to the db. otherwise, wkData should always be used
-    wkData = copy.deepcopy(oldWkData)
-
-    # start time of this execution
-    executionTime = datetime.now(tz.UTC)
-
-    printSummary(baseUrl, apiToken, executionTime, end='')
+    printSummary(baseUrl, apiToken, end='')
 
     cmdHelp()
 
@@ -522,10 +487,6 @@ def main():
             quit = stateNormal()
 
         if quit: break
-
-    # update database
-    wkData['lastExecution'] = executionTime.isoformat()
-    updateDb('wk_data.json', wkData, oldWkData)
 
 if __name__ == '__main__':
     logging.basicConfig(
