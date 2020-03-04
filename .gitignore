@@ -1,4 +1,4 @@
 .DS_Store
 token
-*.json
+wk_data.json
 *.log
