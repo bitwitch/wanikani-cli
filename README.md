@@ -23,3 +23,13 @@ readings. This can be done from System Preferences -> Language & Regions ->
 Keyboard Preferences, under the Input Sources tab, select Japanese and uncheck  
 the boxes for Live Conversion and Predictive candidates. 
 
+#### Image only radicals in Wanikani
+The Wanikani API has a number of radicals for which it does not return any  
+unicode characters. Some of these actually have unicode representations, but  
+there are a few that do not have unicode representations at all. To help deal  
+with this, there is a lookup table in the file `radicals_lookup.json` that  
+contains radicals that have unicode representations not returned by the  
+Wanikani API.  
+
+For more info on these radicals see:   
+https://community.wanikani.com/t/how-to-type-wanikani-radicals/19311
