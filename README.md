@@ -1,5 +1,4 @@
 # Wanikani CLI Client
-
 This is a program for doing kanji reviews and lessons from the command line.  
 It was made for personal use and was not intended to be a publicly used  
 utility. The source is freely available to learn from, modify, or to use as is.  
@@ -8,7 +7,7 @@ utility. The source is freely available to learn from, modify, or to use as is.
 This is a python3 program.  
 `$ python3 wanikani_cli.py`  
   
-This program expects a file called `token` that contains a Wanikani  API token  
+This program expects a file called `token` that contains a Wanikani API token  
 (version 2). You can generate an API token on wanikani.com by clicking on  
 Account in the top right corner and then API Tokens. From  here you can  
 generate a new token. **NOTE: Required permissions: `reviews:create` and  
@@ -21,7 +20,7 @@ hiragana you enter. It is recommended to disable kanji prediction when using
 this program, as it can be used to sort of cheat and find the answer to kanji  
 readings. This can be done from System Preferences -> Language & Regions ->  
 Keyboard Preferences, under the Input Sources tab, select Japanese and uncheck  
-the boxes for Live Conversion and Predictive candidates. 
+the boxes for 'Live Conversion' and 'Predictive candidates'.  
 
 #### Image only radicals in Wanikani
 The Wanikani API has a number of radicals for which it does not return any  
@@ -29,7 +28,9 @@ unicode characters. Some of these actually have unicode representations, but
 there are a few that do not have unicode representations at all. To help deal  
 with this, there is a lookup table in the file `radicals_lookup.json` that  
 contains radicals that have unicode representations not returned by the  
-Wanikani API.  
+Wanikani API. For the best possible results, also make sure you have a font  
+on your system that can render unicode in the CJK Unified Ideographs blocks,  
+specifically the Extension B block.  
 
-For more info on these radicals see:   
-https://community.wanikani.com/t/how-to-type-wanikani-radicals/19311
+For more info on these radicals see this [wanikani forum post](https://community.wanikani.com/t/how-to-type-wanikani-radicals/19311).  
+A free unicode CJK font can be found [here](https://www.babelstone.co.uk/Fonts/Han.html).  
