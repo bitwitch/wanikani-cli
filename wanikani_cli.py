@@ -13,9 +13,6 @@ import dateutil.parser
 from dateutil import tz
 import requests
 
-# development only
-from pprint import pprint
-
 class States(Enum):
     NORMAL  = 0
     LESSON  = 1
